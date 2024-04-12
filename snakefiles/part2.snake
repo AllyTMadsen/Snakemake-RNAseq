@@ -1,0 +1,75 @@
+#use the names variable to store your list of file names
+names=["ADrep1", "P4rep1", "ADrep2", "P4rep2", "P0rep1", "P7rep1", "P0rep2", "P7rep2"]
+reads=["R1", "R2"]
+
+#define var for sample files and bam files
+input_files = expand("samples/full_files/{name}_{read}.fastq.gz", name=names, read=reads)
+
+rule all:
+    input: 
+        'results/mouse_ref.fa.gz',
+        'results/mouse_ref.gtf.gz',
+        'results/mouse_ref.gtf',
+        expand("results/{name}Aligned.out.bam", name=names),
+        expand('results/{name}_flagstat_summary.txt', name=names),
+
+rule get_m39:
+    output:
+        fasta='results/mouse_ref.fa.gz',
+    params:
+        url = 'https://ftp.ebi.ac.uk/pub/databases/gencode/Gencode_mouse/release_M34/GRCm39.primary_assembly.genome.fa.gz',
+    shell:
+        '''
+        wget -O {output.fasta} {params.url} 
+        '''
+
+rule get_m39_gtf:
+    output:
+        GTFzip='results/mouse_ref.gtf.gz',
+    params:
+        url = 'https://ftp.ebi.ac.uk/pub/databases/gencode/Gencode_mouse/release_M34/gencode.vM34.chr_patch_hapl_scaff.annotation.gtf.gz',
+    shell:
+        '''
+        wget -O {output.GTFzip} {params.url} 
+        '''
+
+#unzip the gtf file 
+rule unzip_gtf:
+    input:
+        GTFzip='results/mouse_ref.gtf.gz',
+    output: 
+        GTFunzip='results/mouse_ref.gtf',
+    shell:
+        '''
+        gunzip -k {input.GTFzip} > {output.GTFunzip}
+        '''
+
+# make sure to read up on how STAR names it output files    
+rule star:
+    input:
+        ref_gen='samples/m39_star/',      #change this to m39_star
+        reads = lambda wildcards: [
+        f'samples/full_files/{wildcards.name}_R1.fastq.gz',
+        f'samples/full_files/{wildcards.name}_R2.fastq.gz']
+    output:    
+        bam='results/{name}Aligned.out.bam',
+    params:
+        options='--outSAMtype BAM Unsorted',
+    threads: 8    
+    shell:
+        '''
+        STAR --runThreadN {threads} \
+        STAR --genomeDir {input.ref_gen} --readFilesCommand zcat --readFilesIn {input.reads} {params.options} --outFileNamePrefix 'results/{wildcards.name}' 
+        '''
+
+rule samtools_flagstat:
+    input:
+        bam="results/{name}Aligned.out.bam",
+    output:
+        txt="results/{name}_flagstat_summary.txt",
+    params:
+        name = lambda wildcards: wildcards.name
+    shell:
+        '''
+        samtools flagstat {input.bam} > {output.txt}
+        '''
